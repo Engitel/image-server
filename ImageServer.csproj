@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Imageflow.Server" />
+    <None Remove="Imageflow.Server.DiskCache" />
+    <None Remove="Imageflow.Server.HybridCache" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Imageflow.Server" Version="0.7.7" />
+    <PackageReference Include="Imageflow.Server.DiskCache" Version="0.7.7" />
+    <PackageReference Include="Imageflow.Server.HybridCache" Version="0.7.7" />
+    <PackageReference Include="NLog" Version="5.0.4" />
+    <PackageReference Include="NLog.Web.AspNetCore" Version="5.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="wwwroot\" />
+  </ItemGroup>
+</Project>
