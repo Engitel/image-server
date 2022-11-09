@@ -3,7 +3,6 @@ using Imageflow.Server.HybridCache;
 using ImageServer;
 using NLog;
 using NLog.Web;
-using Microsoft.Extensions.Logging;
 
 var logger = NLog.LogManager.Setup().LoadConfigurationFromAppSettings().GetCurrentClassLogger();
 logger.Info("Image Server is starting....");
