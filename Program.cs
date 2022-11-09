@@ -3,6 +3,7 @@ using Imageflow.Server.HybridCache;
 using ImageServer;
 using NLog;
 using NLog.Web;
+using Microsoft.Extensions.Logging;
 
 var logger = NLog.LogManager.Setup().LoadConfigurationFromAppSettings().GetCurrentClassLogger();
 logger.Info("Image Server is starting....");
@@ -10,10 +11,14 @@ logger.Info("Image Server is starting....");
 try { 
 
     var builder = WebApplication.CreateBuilder(args);
+    builder.Logging.ClearProviders();
+    builder.Host.UseNLog();
+
     logger.Debug("Image Server is reading configuration options....");
 
     ImageFlowConfigurationOption imageFlowConfOptions = new ImageFlowConfigurationOption();
     builder.Configuration.GetSection(ImageFlowConfigurationOption.ImageFlow).Bind(imageFlowConfOptions);
+
 
     var homeFolder = imageFlowConfOptions.CacheDirectory;
     var cacheSize = imageFlowConfOptions.CacheSize;
@@ -51,7 +56,7 @@ try {
         .AddCommandDefault("webp.quality", "90")
         .AddCommandDefault("ignore_icc_errors", "true");
     
-    if(imageFlowConfOptions.DiagnosticPassword.Length > 0)
+    if (imageFlowConfOptions.DiagnosticPassword.Length > 0)
     {
         opts.SetDiagnosticsPageAccess(app.Environment.IsDevelopment() ? AccessDiagnosticsFrom.AnyHost : AccessDiagnosticsFrom.LocalHost)
         .SetDiagnosticsPagePassword(imageFlowConfOptions.DiagnosticPassword);
@@ -68,16 +73,16 @@ try {
     {
         opts.SetUsePresetsExclusively(true);
         logger.Debug("Accepts only presets requests");
-
     }
 
     // creates presets
     foreach (PresetConfigurationOption item in imageFlowConfOptions.Presets)
     {
         PresetOptions opt = new PresetOptions(item.Name, PresetPriority.DefaultValues);
+        logger.Debug("Add Preset {0}", item.Name);
+
         foreach (var com in item.Commands)
         {
-            logger.Debug("Add Preset {0}", com.Name);
             opt.SetCommand(com.Name, com.Value);
         }
         opts.AddPreset(opt);
