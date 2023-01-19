@@ -1,8 +1,12 @@
 ﻿using Imageflow.Server;
 using Imageflow.Server.HybridCache;
 using ImageServer;
+using Imageflow.Server.Storage.Sharepoint;
 using NLog;
 using NLog.Web;
+using Newtonsoft.Json;
+using NLog.Fluent;
+using System.Text.Json;
 
 var logger = NLog.LogManager.Setup().LoadConfigurationFromAppSettings().GetCurrentClassLogger();
 logger.Info("Image Server is starting....");
@@ -34,6 +38,28 @@ try {
     logger.Debug("Cache folder: {0}\\cache", homeFolder);
     logger.Debug("Cache size: {0}", cacheSize);
 
+    // Sharepoint remote storage
+    SharepointServiceOptions sharepointConfOptions = new SharepointServiceOptions();
+    builder.Configuration.GetSection(SharepointServiceOptions.Section).Bind(sharepointConfOptions);
+
+    if(sharepointConfOptions.ClientId != null)
+    {
+        // See the README in src/Imageflow.Server.Storage.RemoteReader/ for more advanced configuration
+        // To add the RemoteReaderService, you need to all .AddHttpClient() first
+        builder.Services.AddHttpClient();
+
+        if (sharepointConfOptions.UrlPrefix != null)
+        {
+            logger.Debug("Sharepoint Prefix: {0}", sharepointConfOptions.UrlPrefix);
+            sharepointConfOptions.AddPrefix(sharepointConfOptions.UrlPrefix);
+        }
+
+        builder.Services.AddImageflowSharepointService(
+            sharepointConfOptions
+        );
+
+    }
+
     var app = builder.Build();
 
     if (!app.Environment.IsDevelopment())
@@ -50,9 +76,9 @@ try {
         .SetAllowCaching(true)
         .SetDefaultCacheControlString(cacheMaxAge)
         // defaults
-        .AddCommandDefault("down.filter", "mitchell")
-        .AddCommandDefault("f.sharpen", "15")
-        .AddCommandDefault("webp.quality", "90")
+        //.AddCommandDefault("down.filter", "mitchell")
+        //.AddCommandDefault("f.sharpen", "15")
+        //.AddCommandDefault("webp.quality", "90")
         .AddCommandDefault("ignore_icc_errors", "true");
     
     if (imageFlowConfOptions.DiagnosticPassword.Length > 0)
@@ -62,18 +88,7 @@ try {
         logger.Debug("DiagnosticPassword is set");
     }
 
-    if (imageFlowConfOptions.SignatureKey.Length > 0)
-    {    
-        opts.SetRequestSignatureOptions(
-            new RequestSignatureOptions(SignatureRequired.ForQuerystringRequests, new[] { imageFlowConfOptions.SignatureKey })
-        ).SetUsePresetsExclusively(false);
-        logger.Debug("Accepts sigend query-string requests");
-    } else
-    {
-        opts.SetUsePresetsExclusively(true);
-        logger.Debug("Accepts only presets requests");
-    }
-
+    bool hasPresets = false;
     // creates presets
     foreach (PresetConfigurationOption item in imageFlowConfOptions.Presets)
     {
@@ -85,6 +100,23 @@ try {
             opt.SetCommand(com.Name, com.Value);
         }
         opts.AddPreset(opt);
+        hasPresets = true;
+    }
+
+    if (imageFlowConfOptions.SignatureKey.Length > 0)
+    {
+        opts.SetRequestSignatureOptions(
+            new RequestSignatureOptions(SignatureRequired.ForQuerystringRequests, new[] { imageFlowConfOptions.SignatureKey })
+        ).SetUsePresetsExclusively(false);
+        logger.Debug("Accepts sigend query-string requests");
+    }
+    else
+    {
+        if (hasPresets)
+        {
+            opts.SetUsePresetsExclusively(true);
+            logger.Debug("Accepts only presets requests");
+        }
     }
 
     // Imageflow
