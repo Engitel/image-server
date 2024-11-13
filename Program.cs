@@ -1,8 +1,14 @@
 ﻿using Imageflow.Server;
 using Imageflow.Server.HybridCache;
 using ImageServer;
+using Imageflow.Server.Storage.Sharepoint;
 using NLog;
 using NLog.Web;
+using Newtonsoft.Json;
+using NLog.Fluent;
+using System.Text.Json;
+using Microsoft.AspNetCore.Diagnostics;
+using static System.Net.Mime.MediaTypeNames;
 
 var logger = NLog.LogManager.Setup().LoadConfigurationFromAppSettings().GetCurrentClassLogger();
 logger.Info("Image Server is starting....");
@@ -10,10 +16,14 @@ logger.Info("Image Server is starting....");
 try { 
 
     var builder = WebApplication.CreateBuilder(args);
+    builder.Logging.ClearProviders();
+    builder.Host.UseNLog();
+
     logger.Debug("Image Server is reading configuration options....");
 
     ImageFlowConfigurationOption imageFlowConfOptions = new ImageFlowConfigurationOption();
     builder.Configuration.GetSection(ImageFlowConfigurationOption.ImageFlow).Bind(imageFlowConfOptions);
+
 
     var homeFolder = imageFlowConfOptions.CacheDirectory;
     var cacheSize = imageFlowConfOptions.CacheSize;
@@ -30,13 +40,54 @@ try {
     logger.Debug("Cache folder: {0}\\cache", homeFolder);
     logger.Debug("Cache size: {0}", cacheSize);
 
+    // Sharepoint remote storage
+    SharepointServiceOptions sharepointConfOptions = new SharepointServiceOptions();
+    builder.Configuration.GetSection(SharepointServiceOptions.Section).Bind(sharepointConfOptions);
+
+    if(sharepointConfOptions.ClientId != null)
+    {
+        // See the README in src/Imageflow.Server.Storage.RemoteReader/ for more advanced configuration
+        // To add the RemoteReaderService, you need to all .AddHttpClient() first
+        builder.Services.AddHttpClient();
+
+        if (sharepointConfOptions.UrlPrefix != null)
+        {
+            logger.Debug("Sharepoint Prefix: {0}", sharepointConfOptions.UrlPrefix);
+            sharepointConfOptions.AddPrefix(sharepointConfOptions.UrlPrefix);
+        }
+
+        builder.Services.AddImageflowSharepointService(
+            sharepointConfOptions
+        );
+
+    }
+
     var app = builder.Build();
 
     if (!app.Environment.IsDevelopment())
     {
-        app.UseExceptionHandler("/Error");
+
+        app.UseExceptionHandler(exceptionHandlerApp =>
+        {
+            exceptionHandlerApp.Run(async context =>
+            {
+                var exceptionHandlerFeature = context.Features.Get<IExceptionHandlerFeature>();
+                if (exceptionHandlerFeature != null)
+                {
+                    var exception = exceptionHandlerFeature.Error;
+                    logger.Debug("Exception: {0}", exception.Message);
+                }
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                await context.Response.WriteAsync("Not Found");
+            });
+        });
         app.UseHsts();
     }
+    else
+    {
+        app.UseDeveloperExceptionPage();
+    }
+
     string cacheMaxAge = imageFlowConfOptions.CacheMaxAge.Length > 0 ? imageFlowConfOptions.CacheMaxAge : "public, max-age=2592000";
     ImageflowMiddlewareOptions opts = new ImageflowMiddlewareOptions();
     logger.Debug("Max age: {0}", cacheMaxAge);
@@ -46,46 +97,53 @@ try {
         .SetAllowCaching(true)
         .SetDefaultCacheControlString(cacheMaxAge)
         // defaults
-        .AddCommandDefault("down.filter", "mitchell")
-        .AddCommandDefault("f.sharpen", "15")
-        .AddCommandDefault("webp.quality", "90")
+        //.AddCommandDefault("down.filter", "mitchell")
+        //.AddCommandDefault("f.sharpen", "15")
+        //.AddCommandDefault("webp.quality", "90")
         .AddCommandDefault("ignore_icc_errors", "true");
     
-    if(imageFlowConfOptions.DiagnosticPassword.Length > 0)
+    if (imageFlowConfOptions.DiagnosticPassword.Length > 0)
     {
         opts.SetDiagnosticsPageAccess(app.Environment.IsDevelopment() ? AccessDiagnosticsFrom.AnyHost : AccessDiagnosticsFrom.LocalHost)
         .SetDiagnosticsPagePassword(imageFlowConfOptions.DiagnosticPassword);
         logger.Debug("DiagnosticPassword is set");
     }
 
-    if (imageFlowConfOptions.SignatureKey.Length > 0)
-    {    
-        opts.SetRequestSignatureOptions(
-            new RequestSignatureOptions(SignatureRequired.ForQuerystringRequests, new[] { imageFlowConfOptions.SignatureKey })
-        ).SetUsePresetsExclusively(false);
-        logger.Debug("Accepts sigend query-string requests");
-    } else
-    {
-        opts.SetUsePresetsExclusively(true);
-        logger.Debug("Accepts only presets requests");
-
-    }
-
+    bool hasPresets = false;
     // creates presets
     foreach (PresetConfigurationOption item in imageFlowConfOptions.Presets)
     {
         PresetOptions opt = new PresetOptions(item.Name, PresetPriority.DefaultValues);
+        logger.Info("Add Preset {0}", item.Name);
+
         foreach (var com in item.Commands)
         {
-            logger.Debug("Add Preset {0}", com.Name);
             opt.SetCommand(com.Name, com.Value);
+            logger.Debug("{0}: {1}", com.Name, com.Value);
         }
         opts.AddPreset(opt);
+        hasPresets = true;
+    }
+
+    if (imageFlowConfOptions.SignatureKey.Length > 0)
+    {
+        opts.SetRequestSignatureOptions(
+            new RequestSignatureOptions(SignatureRequired.ForQuerystringRequests, new[] { imageFlowConfOptions.SignatureKey })
+        ).SetUsePresetsExclusively(false);
+        logger.Debug("Accepts sigend query-string requests");
+    }
+    else
+    {
+        if (hasPresets)
+        {
+            opts.SetUsePresetsExclusively(true);
+            logger.Debug("Accepts only presets requests");
+        }
     }
 
     // Imageflow
     app.UseImageflow(opts);
-    app.UseHttpsRedirection();
+    // app.UseHttpsRedirection();
     app.UseStaticFiles();
     app.UseRouting();
     app.Run();
