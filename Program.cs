@@ -9,6 +9,7 @@ using NLog.Fluent;
 using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics;
 using static System.Net.Mime.MediaTypeNames;
+using Microsoft.AspNetCore.StaticFiles;
 
 var logger = NLog.LogManager.Setup().LoadConfigurationFromAppSettings().GetCurrentClassLogger();
 logger.Info("Image Server is starting....");
@@ -144,7 +145,27 @@ try {
     // Imageflow
     app.UseImageflow(opts);
     // app.UseHttpsRedirection();
-    app.UseStaticFiles();
+
+    if (imageFlowConfOptions.ContentTypes.Count > 0)
+    {
+        var provider = new FileExtensionContentTypeProvider();
+        // creates presets
+        foreach (ContentTypeMapping item in imageFlowConfOptions.ContentTypes)
+        {
+            provider.Mappings[item.Extension] = item.ContentType;
+        }
+        app.UseStaticFiles(
+            new StaticFileOptions
+            {
+                ContentTypeProvider = provider
+            }
+        );
+    }
+    else
+    {
+        app.UseStaticFiles();
+    }
+
     app.UseRouting();
     app.Run();
 }
