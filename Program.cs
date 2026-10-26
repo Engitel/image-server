@@ -1,14 +1,11 @@
 ﻿using Imageflow.Server;
 using Imageflow.Server.HybridCache;
 using ImageServer;
+using ImageServer.Authorization;
 using Imageflow.Server.Storage.Sharepoint;
 using NLog;
 using NLog.Web;
-using Newtonsoft.Json;
-using NLog.Fluent;
-using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics;
-using static System.Net.Mime.MediaTypeNames;
 using Microsoft.AspNetCore.StaticFiles;
 
 var logger = NLog.LogManager.Setup().LoadConfigurationFromAppSettings().GetCurrentClassLogger();
@@ -62,6 +59,8 @@ try {
         );
 
     }
+
+    builder.Services.AddSgAuthorize(builder.Configuration);
 
     var app = builder.Build();
 
@@ -141,6 +140,9 @@ try {
             logger.Debug("Accepts only presets requests");
         }
     }
+
+    // Authorize protected image URLs before Imageflow / static files serve content
+    app.UseSgAuthorize();
 
     // Imageflow
     app.UseImageflow(opts);
